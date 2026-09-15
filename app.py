@@ -1,1218 +1,247 @@
-import streamlit as st
 import random
 import time
+import numpy as np
+import streamlit as st
 
-# =========================================================
 # 페이지 설정
-# =========================================================
+st.set_page_config(page_title="Streamlit Tetris", page_icon="🎮", layout="centered")
 
-st.set_page_config(
-    page_title="Tetris",
-    page_icon="🎮",
-    layout="centered"
+# CSS 스타일링 (게임판 시인성 향상)
+st.markdown(
+    """
+    <style>
+    .stButton button {
+        width: 100%;
+        font-weight: bold;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
 )
 
-# =========================================================
-# 게임 설정
-# =========================================================
+# 게임 설정 상수
+BOARD_WIDTH = 10
+BOARD_HEIGHT = 20
 
-WIDTH = 10
-HEIGHT = 20
-
-COLORS = {
-    0: "#111827",
-    1: "#00E5FF",  # I
-    2: "#2979FF",  # J
-    3: "#FF9800",  # L
-    4: "#FFD600",  # O
-    5: "#00E676",  # S
-    6: "#D500F9",  # T
-    7: "#FF1744",  # Z
-}
-
-PIECES = {
-    "I": [
-        [[1, 1, 1, 1]],
-        [[1], [1], [1], [1]],
-    ],
-
+# 테트로미노 모양과 색상 정의 (0: 빈칸, 1~7: 블록 종류)
+SHAPES = {
+    "I": [[1, 1, 1, 1]],
     "O": [
-        [[1, 1],
-         [1, 1]],
+        [1, 1],
+        [1, 1],
     ],
-
     "T": [
-        [[0, 1, 0],
-         [1, 1, 1]],
-
-        [[1, 0],
-         [1, 1],
-         [1, 0]],
-
-        [[1, 1, 1],
-         [0, 1, 0]],
-
-        [[0, 1],
-         [1, 1],
-         [0, 1]],
+        [0, 1, 0],
+        [1, 1, 1],
     ],
-
-    "J": [
-        [[1, 0, 0],
-         [1, 1, 1]],
-
-        [[1, 1],
-         [1, 0],
-         [1, 0]],
-
-        [[1, 1, 1],
-         [0, 0, 1]],
-
-        [[0, 1],
-         [0, 1],
-         [1, 1]],
-    ],
-
-    "L": [
-        [[0, 0, 1],
-         [1, 1, 1]],
-
-        [[1, 0],
-         [1, 0],
-         [1, 1]],
-
-        [[1, 1, 1],
-         [1, 0, 0]],
-
-        [[1, 1],
-         [0, 1],
-         [0, 1]],
-    ],
-
     "S": [
-        [[0, 1, 1],
-         [1, 1, 0]],
-
-        [[1, 0],
-         [1, 1],
-         [0, 1]],
+        [0, 1, 1],
+        [1, 1, 0],
     ],
-
     "Z": [
-        [[1, 1, 0],
-         [0, 1, 1]],
-
-        [[0, 1],
-         [1, 1],
-         [1, 0]],
+        [1, 1, 0],
+        [0, 1, 1],
+    ],
+    "J": [
+        [1, 0, 0],
+        [1, 1, 1],
+    ],
+    "L": [
+        [0, 0, 1],
+        [1, 1, 1],
     ],
 }
 
-PIECE_COLOR = {
-    "I": 1,
-    "J": 2,
-    "L": 3,
-    "O": 4,
-    "S": 5,
-    "T": 6,
-    "Z": 7,
+EMOJIS = {
+    0: "⬛",  # 빈 칸
+    1: "🟦",  # I
+    2: "🟨",  # O
+    3: "🟪",  # T
+    4: "🟩",  # S
+    5: "🟥",  # Z
+    6: "🟧",  # J
+    7: "🟫",  # L
 }
 
 
-# =========================================================
-# 게임 초기화
-# =========================================================
-
-def new_game():
-
-    st.session_state.board = [
-        [0 for _ in range(WIDTH)]
-        for _ in range(HEIGHT)
-    ]
-
-    pieces = list(PIECES.keys())
-
-    st.session_state.current = random.choice(pieces)
-    st.session_state.next = random.choice(pieces)
-    st.session_state.hold = None
-
-    st.session_state.rotation = 0
-
-    st.session_state.x = 3
-    st.session_state.y = 0
-
+# 세션 상태 초기화
+def init_game():
+    st.session_state.board = np.zeros((BOARD_HEIGHT, BOARD_WIDTH), dtype=int)
     st.session_state.score = 0
-    st.session_state.lines = 0
     st.session_state.level = 1
-    st.session_state.combo = 0
-
-    st.session_state.can_hold = True
     st.session_state.game_over = False
     st.session_state.paused = False
+    st.session_state.current_piece = spawn_piece()
+    st.session_state.next_piece = spawn_piece()
 
-    st.session_state.last_drop = time.time()
+
+def spawn_piece():
+    shape_name = random.choice(list(SHAPES.keys()))
+    return {
+        "shape": SHAPES[shape_name],
+        "name": shape_name,
+        "x": BOARD_WIDTH // 2 - len(SHAPES[shape_name][0]) // 2,
+        "y": 0,
+        "color_id": list(SHAPES.keys()).index(shape_name) + 1,
+    }
 
 
 if "board" not in st.session_state:
-    new_game()
+    init_game()
 
 
-# =========================================================
-# 현재 블록 모양
-# =========================================================
+# 충돌 검사 함수
+def check_collision(board, piece, dx, dy, rotated_shape=None):
+    shape = rotated_shape if rotated_shape is not None else piece["shape"]
+    px = piece["x"] + dx
+    py = piece["y"] + dy
 
-def get_shape():
-
-    rotations = PIECES[st.session_state.current]
-
-    index = (
-        st.session_state.rotation
-        % len(rotations)
-    )
-
-    return rotations[index]
-
-
-# =========================================================
-# 충돌 검사
-# =========================================================
-
-def collision(s, x, y):
-
-    for row_index, row in enumerate(s):
-
-        for col_index, value in enumerate(row):
-
-            if value == 0:
-                continue
-
-            board_x = x + col_index
-            board_y = y + row_index
-
-            if board_x < 0:
-                return True
-
-            if board_x >= WIDTH:
-                return True
-
-            if board_y >= HEIGHT:
-                return True
-
-            if (
-                board_y >= 0
-                and st.session_state.board[board_y][board_x] != 0
-            ):
-                return True
-
+    for r_idx, row in enumerate(shape):
+        for c_idx, val in enumerate(row):
+            if val:
+                nx = px + c_idx
+                ny = py + r_idx
+                if (
+                    nx < 0
+                    or nx >= BOARD_WIDTH
+                    or ny >= BOARD_HEIGHT
+                    or (ny >= 0 and board[ny][nx] != 0)
+                ):
+                    return True
     return False
 
 
-# =========================================================
-# 블록 이동
-# =========================================================
+# 블록 고정 및 줄 제거
+def lock_piece():
+    board = st.session_state.board
+    piece = st.session_state.current_piece
+    for r_idx, row in enumerate(piece["shape"]):
+        for c_idx, val in enumerate(row):
+            if val:
+                ny = piece["y"] + r_idx
+                nx = piece["x"] + c_idx
+                if ny >= 0:
+                    board[ny][nx] = piece["color_id"]
 
-def move(dx, dy):
-
-    new_x = st.session_state.x + dx
-    new_y = st.session_state.y + dy
-
-    if not collision(
-        get_shape(),
-        new_x,
-        new_y
-    ):
-
-        st.session_state.x = new_x
-        st.session_state.y = new_y
-
-        return True
-
-    return False
-
-
-# =========================================================
-# 회전
-# =========================================================
-
-def rotate():
-
-    old_rotation = st.session_state.rotation
-
-    st.session_state.rotation += 1
-
-    s = get_shape()
-
-    if not collision(
-        s,
-        st.session_state.x,
-        st.session_state.y
-    ):
-        return
-
-    # 벽에 붙어 있을 때 위치 조정
-    for offset in [-1, 1, -2, 2]:
-
-        if not collision(
-            s,
-            st.session_state.x + offset,
-            st.session_state.y
-        ):
-
-            st.session_state.x += offset
-            return
-
-    st.session_state.rotation = old_rotation
-
-
-# =========================================================
-# 줄 삭제
-# =========================================================
-
-def clear_lines():
-
+    # 줄 완성 체크 및 제거
+    lines_cleared = 0
     new_board = []
-    cleared = 0
-
-    for row in st.session_state.board:
-
-        if all(cell != 0 for cell in row):
-            cleared += 1
+    for row in board:
+        if all(row != 0):
+            lines_cleared += 1
         else:
             new_board.append(row)
 
-    while len(new_board) < HEIGHT:
+    for _ in range(lines_cleared):
+        new_board.insert(0, np.zeros(BOARD_WIDTH, dtype=int))
 
-        new_board.insert(
-            0,
-            [0 for _ in range(WIDTH)]
-        )
+    st.session_state.board = np.array(new_board)
 
-    st.session_state.board = new_board
+    # 점수 계산 및 레벨 업
+    if lines_cleared > 0:
+        st.session_state.score += (lines_cleared**2) * 100 * st.session_state.level
+        st.session_state.level = st.session_state.score // 1000 + 1
 
-    if cleared > 0:
+    # 다음 블록 가져오기
+    st.session_state.current_piece = st.session_state.next_piece
+    st.session_state.next_piece = spawn_piece()
 
-        score_table = {
-            1: 100,
-            2: 300,
-            3: 500,
-            4: 800
-        }
-
-        gained = score_table.get(cleared, 0)
-
-        gained *= st.session_state.level
-
-        st.session_state.combo += 1
-
-        if st.session_state.combo > 1:
-
-            gained += (
-                st.session_state.combo * 50
-            )
-
-        st.session_state.score += gained
-        st.session_state.lines += cleared
-
-        st.session_state.level = (
-            st.session_state.lines // 10
-        ) + 1
-
-    else:
-
-        st.session_state.combo = 0
-
-
-# =========================================================
-# 블록 고정
-# =========================================================
-
-def lock_piece():
-
-    s = get_shape()
-
-    color = PIECE_COLOR[
-        st.session_state.current
-    ]
-
-    for row_index, row in enumerate(s):
-
-        for col_index, value in enumerate(row):
-
-            if value == 0:
-                continue
-
-            board_x = (
-                st.session_state.x
-                + col_index
-            )
-
-            board_y = (
-                st.session_state.y
-                + row_index
-            )
-
-            if (
-                0 <= board_x < WIDTH
-                and 0 <= board_y < HEIGHT
-            ):
-
-                st.session_state.board[
-                    board_y
-                ][
-                    board_x
-                ] = color
-
-    clear_lines()
-
-    st.session_state.current = (
-        st.session_state.next
-    )
-
-    st.session_state.next = random.choice(
-        list(PIECES.keys())
-    )
-
-    st.session_state.rotation = 0
-    st.session_state.x = 3
-    st.session_state.y = 0
-
-    st.session_state.can_hold = True
-
-    if collision(
-        get_shape(),
-        st.session_state.x,
-        st.session_state.y
+    # 게임 오버 체크
+    if check_collision(
+        st.session_state.board, st.session_state.current_piece, 0, 0
     ):
-
         st.session_state.game_over = True
 
 
-# =========================================================
-# 하드 드롭
-# =========================================================
+# UI 레이아웃 구성
+st.title("🕹️ Streamlit 테트리스 게임")
+st.write("버튼을 눌러 블록을 조작하고 최고 기록을 달성해 보세요!")
 
-def hard_drop():
+col_game, col_ctrl = st.col([2, 1])
 
-    distance = 0
+with col_game:
+    # 화면에 렌더링할 보드 복사
+    render_board = st.session_state.board.copy()
+    p = st.session_state.current_piece
+    if not st.session_state.game_over:
+        for r_idx, row in enumerate(p["shape"]):
+            for c_idx, val in enumerate(row):
+                if val:
+                    ny = p["y"] + r_idx
+                    nx = p["x"] + c_idx
+                    if 0 <= ny < BOARD_HEIGHT and 0 <= nx < BOARD_WIDTH:
+                        render_board[ny][nx] = p["color_id"]
 
-    while move(0, 1):
-        distance += 1
-
-    st.session_state.score += (
-        distance * 2
+    # 보드 출력 (이모지 활용)
+    board_str = "\n".join(
+        ["".join([EMOJIS[cell] for cell in row]) for row in render_board]
     )
+    st.text(board_str)
 
-    lock_piece()
+with col_ctrl:
+    st.markdown(f"### 📊 점수: {st.session_state.score}")
+    st.markdown(f"### 🔥 레벨: {st.session_state.level}")
 
-
-# =========================================================
-# HOLD
-# =========================================================
-
-def hold_piece():
-
-    if not st.session_state.can_hold:
-        return
-
-    current = st.session_state.current
-
-    if st.session_state.hold is None:
-
-        st.session_state.hold = current
-
-        st.session_state.current = (
-            st.session_state.next
-        )
-
-        st.session_state.next = random.choice(
-            list(PIECES.keys())
-        )
-
-    else:
-
-        old_hold = st.session_state.hold
-
-        st.session_state.hold = current
-        st.session_state.current = old_hold
-
-    st.session_state.rotation = 0
-    st.session_state.x = 3
-    st.session_state.y = 0
-
-    st.session_state.can_hold = False
-
-
-# =========================================================
-# Ghost 블록 위치
-# =========================================================
-
-def get_ghost_y():
-
-    ghost_y = st.session_state.y
-
-    while not collision(
-        get_shape(),
-        st.session_state.x,
-        ghost_y + 1
-    ):
-
-        ghost_y += 1
-
-    return ghost_y
-
-
-# =========================================================
-# 보드 HTML 생성
-# =========================================================
-
-def create_board_html():
-
-    board = [
-        row[:] for row in st.session_state.board
-    ]
-
-    # -------------------------
-    # Ghost
-    # -------------------------
-
-    if not st.session_state.game_over:
-
-        ghost_y = get_ghost_y()
-
-        s = get_shape()
-
-        for r, row in enumerate(s):
-
-            for c, value in enumerate(row):
-
-                if value:
-
-                    x = (
-                        st.session_state.x
-                        + c
-                    )
-
-                    y = ghost_y + r
-
-                    if (
-                        0 <= x < WIDTH
-                        and 0 <= y < HEIGHT
-                        and board[y][x] == 0
-                    ):
-
-                        board[y][x] = -1
-
-
-    # -------------------------
-    # 현재 블록
-    # -------------------------
-
-    if not st.session_state.game_over:
-
-        s = get_shape()
-
-        color = PIECE_COLOR[
-            st.session_state.current
+    st.markdown("---")
+    st.markdown("### ⏭️ 다음 블록")
+    next_p = st.session_state.next_piece
+    next_str = "\n".join(
+        [
+            "".join([EMOJIS[next_p["color_id"] if val else 0] for val in row])
+            for row in next_p["shape"]
         ]
-
-        for r, row in enumerate(s):
-
-            for c, value in enumerate(row):
-
-                if value:
-
-                    x = (
-                        st.session_state.x
-                        + c
-                    )
-
-                    y = (
-                        st.session_state.y
-                        + r
-                    )
-
-                    if (
-                        0 <= x < WIDTH
-                        and 0 <= y < HEIGHT
-                    ):
-
-                        board[y][x] = color
-
-
-    # -------------------------
-    # 셀 생성
-    # -------------------------
-
-    cells = []
-
-    for row in board:
-
-        for cell in row:
-
-            if cell == 0:
-
-                cells.append(
-                    '<div class="cell empty"></div>'
-                )
-
-            elif cell == -1:
-
-                cells.append(
-                    '<div class="cell ghost"></div>'
-                )
-
-            else:
-
-                color = COLORS[cell]
-
-                cells.append(
-                    f'''
-                    <div
-                        class="cell block"
-                        style="
-                            background:{color};
-                        "
-                    ></div>
-                    '''
-                )
-
-
-    # ★ 중요
-    # HTML을 한 줄 구조로 만들어
-    # Streamlit이 코드처럼 해석할 가능성을 제거
-
-    return (
-        '<div class="tetris-board">'
-        + ''.join(cells)
-        + '</div>'
     )
+    st.text(next_str)
 
+    st.markdown("---")
+    if st.button("🔄 게임 재시작"):
+        init_game()
+        st.rerun()
 
-# =========================================================
-# 미리보기 HTML
-# =========================================================
-
-def create_preview_html(piece):
-
-    if piece is None:
-
-        return (
-            '<div class="preview-empty">'
-            'EMPTY'
-            '</div>'
-        )
-
-    s = PIECES[piece][0]
-
-    cells = []
-
-    for r in range(4):
-
-        for c in range(4):
-
-            value = 0
-
-            if (
-                r < len(s)
-                and c < len(s[0])
-            ):
-
-                value = s[r][c]
-
-            if value:
-
-                color = COLORS[
-                    PIECE_COLOR[piece]
+# 컨트롤러 버튼 (좌, 우, 회전, 하강)
+if not st.session_state.game_over and not st.session_state.paused:
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("⬅️ 좌") and not check_collision(
+            st.session_state.board, st.session_state.current_piece, -1, 0
+        ):
+            st.session_state.current_piece["x"] -= 1
+            st.rerun()
+    with c2:
+        if st.button("🔄 회전"):
+            rotated = [
+                [
+                    st.session_state.current_piece["shape"][r][c]
+                    for r in range(
+                        len(st.session_state.current_piece["shape"]) - 1, -1, -1
+                    )
                 ]
-
-                cells.append(
-                    f'''
-                    <div
-                        class="preview-cell"
-                        style="
-                            background:{color};
-                        "
-                    ></div>
-                    '''
-                )
-
+                for c in range(len(st.session_state.current_piece["shape"][0]))
+            ]
+            if not check_collision(
+                st.session_state.board,
+                st.session_state.current_piece,
+                0,
+                0,
+                rotated,
+            ):
+                st.session_state.current_piece["shape"] = rotated
+                st.rerun()
+    with c3:
+        if st.button("➡️ 우") and not check_collision(
+            st.session_state.board, st.session_state.current_piece, 1, 0
+        ):
+            st.session_state.current_piece["x"] += 1
+            st.rerun()
+    with c4:
+        if st.button("⬇️ 하강"):
+            if not check_collision(
+                st.session_state.board, st.session_state.current_piece, 0, 1
+            ):
+                st.session_state.current_piece["y"] += 1
             else:
-
-                cells.append(
-                    '<div class="preview-cell blank"></div>'
-                )
-
-    return (
-        '<div class="preview-grid">'
-        + ''.join(cells)
-        + '</div>'
-    )
-
-
-# =========================================================
-# CSS
-# =========================================================
-
-st.markdown(
-    """
-<style>
-
-html, body {
-    background: #020617;
-}
-
-.stApp {
-    background:
-        radial-gradient(
-            circle at top,
-            #172554 0%,
-            #020617 55%,
-            #020617 100%
-        );
-}
-
-/* 제목 */
-
-.game-title {
-    text-align: center;
-    color: white;
-    font-size: 46px;
-    font-weight: 900;
-    letter-spacing: 4px;
-    margin-top: 10px;
-}
-
-.game-subtitle {
-    text-align: center;
-    color: #60a5fa;
-    margin-bottom: 25px;
-}
-
-/* 보드 */
-
-.tetris-board {
-    width: 300px;
-    height: 600px;
-
-    display: grid;
-
-    grid-template-columns:
-        repeat(10, 1fr);
-
-    grid-template-rows:
-        repeat(20, 1fr);
-
-    gap: 2px;
-
-    padding: 5px;
-
-    margin: auto;
-
-    background: #020617;
-
-    border: 3px solid #64748b;
-
-    border-radius: 12px;
-
-    box-sizing: border-box;
-
-    box-shadow:
-        0 0 35px
-        rgba(59,130,246,.3);
-}
-
-.cell {
-    width: 100%;
-    height: 100%;
-    box-sizing: border-box;
-    border-radius: 3px;
-}
-
-.cell.empty {
-    background: #0f172a;
-    border:
-        1px solid
-        rgba(255,255,255,.025);
-}
-
-.cell.block {
-    border-radius: 4px;
-
-    box-shadow:
-        inset 0 2px 3px
-        rgba(255,255,255,.5),
-
-        inset 0 -2px 3px
-        rgba(0,0,0,.35);
-}
-
-.cell.ghost {
-    background:
-        rgba(148,163,184,.10);
-
-    border:
-        1px dashed
-        rgba(148,163,184,.4);
-}
-
-/* 패널 */
-
-.panel-title {
-    color: white;
-    font-size: 21px;
-    font-weight: 800;
-    margin-bottom: 10px;
-}
-
-/* 점수 */
-
-.stat-box {
-    background:
-        rgba(30,41,59,.9);
-
-    border:
-        1px solid #334155;
-
-    border-radius: 10px;
-
-    padding: 10px;
-
-    text-align: center;
-
-    margin-bottom: 8px;
-}
-
-.stat-name {
-    color: #94a3b8;
-    font-size: 12px;
-}
-
-.stat-value {
-    color: white;
-    font-size: 25px;
-    font-weight: 900;
-}
-
-/* 미리보기 */
-
-.preview-grid {
-    width: 112px;
-    height: 112px;
-
-    display: grid;
-
-    grid-template-columns:
-        repeat(4, 25px);
-
-    grid-template-rows:
-        repeat(4, 25px);
-
-    gap: 3px;
-
-    padding: 5px;
-
-    box-sizing: border-box;
-
-    background: #0f172a;
-
-    border-radius: 10px;
-
-    margin-bottom: 20px;
-}
-
-.preview-cell {
-    border-radius: 4px;
-
-    box-shadow:
-        inset 0 2px 3px
-        rgba(255,255,255,.4),
-
-        inset 0 -2px 3px
-        rgba(0,0,0,.3);
-}
-
-.preview-cell.blank {
-    background: transparent;
-    box-shadow: none;
-}
-
-.preview-empty {
-    width: 112px;
-    height: 112px;
-
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    color: #64748b;
-
-    background: #0f172a;
-
-    border-radius: 10px;
-
-    margin-bottom: 20px;
-}
-
-/* 조작 설명 */
-
-.control-box {
-    background:
-        rgba(15,23,42,.95);
-
-    color: #cbd5e1;
-
-    border:
-        1px solid #334155;
-
-    border-radius: 10px;
-
-    padding: 14px;
-
-    line-height: 1.9;
-
-    font-size: 14px;
-}
-
-/* 게임오버 */
-
-.game-over {
-    background: #991b1b;
-
-    color: white;
-
-    text-align: center;
-
-    padding: 12px;
-
-    border-radius: 10px;
-
-    font-size: 22px;
-
-    font-weight: 900;
-
-    margin-bottom: 12px;
-}
-
-</style>
-""",
-    unsafe_allow_html=True
-)
-
-
-# =========================================================
-# 제목
-# =========================================================
-
-st.markdown(
-    '<div class="game-title">🎮 TETRIS</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="game-subtitle">STREAMLIT EDITION</div>',
-    unsafe_allow_html=True
-)
-
-
-# =========================================================
-# 자동 낙하
-# =========================================================
-
-if (
-    not st.session_state.game_over
-    and not st.session_state.paused
-):
-
-    speed = max(
-        0.08,
-        0.8 - (
-            st.session_state.level - 1
-        ) * 0.06
-    )
-
-    current_time = time.time()
-
-    if (
-        current_time
-        - st.session_state.last_drop
-        >= speed
-    ):
-
-        if not move(0, 1):
-
-            lock_piece()
-
-        st.session_state.last_drop = current_time
-
-
-# =========================================================
-# 레이아웃
-# =========================================================
-
-left, center, right = st.columns(
-    [1, 2, 1],
-    gap="medium"
-)
-
-
-# =========================================================
-# 왼쪽
-# =========================================================
-
-with left:
-
-    st.markdown(
-        '<div class="panel-title">HOLD</div>',
-        unsafe_allow_html=True
-    )
-
-    # ★ st.html 사용
-    st.html(
-        create_preview_html(
-            st.session_state.hold
-        )
-    )
-
-    st.markdown(
-        '<div class="panel-title">📊 SCORE</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        f"""
-        <div class="stat-box">
-            <div class="stat-name">
-                SCORE
-            </div>
-
-            <div class="stat-value">
-                {st.session_state.score:,}
-            </div>
-        </div>
-
-        <div class="stat-box">
-            <div class="stat-name">
-                LEVEL
-            </div>
-
-            <div class="stat-value">
-                {st.session_state.level}
-            </div>
-        </div>
-
-        <div class="stat-box">
-            <div class="stat-name">
-                LINES
-            </div>
-
-            <div class="stat-value">
-                {st.session_state.lines}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# =========================================================
-# 중앙
-# =========================================================
-
-with center:
-
-    if st.session_state.game_over:
-
-        st.markdown(
-            '<div class="game-over">'
-            '💀 GAME OVER'
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-    elif st.session_state.paused:
-
-        st.warning("⏸️ 게임 일시정지")
-
-    # ★★★ 핵심 ★★★
-    # 보드를 st.html()로 직접 렌더링
-
-    st.html(
-        create_board_html()
-    )
-
-    st.write("")
-
-    # 이동 버튼
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        if st.button(
-            "⬅️",
-            use_container_width=True
-        ):
-
-            move(-1, 0)
-            st.rerun()
-
-    with col2:
-
-        if st.button(
-            "⬇️",
-            use_container_width=True
-        ):
-
-            if not move(0, 1):
                 lock_piece()
-
             st.rerun()
 
-    with col3:
-
-        if st.button(
-            "➡️",
-            use_container_width=True
-        ):
-
-            move(1, 0)
-            st.rerun()
-
-
-    # 액션 버튼
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        if st.button(
-            "🔄 ROTATE",
-            use_container_width=True
-        ):
-
-            rotate()
-            st.rerun()
-
-    with col2:
-
-        if st.button(
-            "⬇️ DROP",
-            use_container_width=True
-        ):
-
-            hard_drop()
-            st.rerun()
-
-    with col3:
-
-        if st.button(
-            "📦 HOLD",
-            use_container_width=True
-        ):
-
-            hold_piece()
-            st.rerun()
-
-
-# =========================================================
-# 오른쪽
-# =========================================================
-
-with right:
-
-    st.markdown(
-        '<div class="panel-title">NEXT</div>',
-        unsafe_allow_html=True
-    )
-
-    # ★ st.html 사용
-
-    st.html(
-        create_preview_html(
-            st.session_state.next
-        )
-    )
-
-    st.markdown(
-        '<div class="panel-title">🎮 CONTROL</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        """
-        <div class="control-box">
-            ⬅️ ➡️ &nbsp; 이동<br>
-            ⬇️ &nbsp; 빠르게 내리기<br>
-            🔄 &nbsp; 회전<br>
-            SPACE &nbsp; 즉시 내리기<br>
-            C &nbsp; HOLD<br>
-            P &nbsp; 일시정지
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.write("")
-
-    if st.button(
-        "⏸️ PAUSE / RESUME",
-        use_container_width=True
-    ):
-
-        st.session_state.paused = (
-            not st.session_state.paused
-        )
-
-        st.rerun()
-
-    if st.button(
-        "🔄 NEW GAME",
-        use_container_width=True
-    ):
-
-        new_game()
-        st.rerun()
-
-
-# =========================================================
-# 콤보
-# =========================================================
-
-if st.session_state.combo > 1:
-
-    st.success(
-        f"🔥 COMBO x{st.session_state.combo}"
-    )
-
-
-# =========================================================
-# 키보드 안내
-# =========================================================
-
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        color:#64748b;
-        margin-top:20px;
-        font-size:13px;
-    ">
-        키보드 조작은 아래 버튼을 이용하거나
-        방향키를 사용할 수 있습니다.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# =========================================================
-# 자동 새로고침
-# =========================================================
-
-if (
-    not st.session_state.game_over
-    and not st.session_state.paused
-):
-
-    time.sleep(0.08)
-    st.rerun()
+if st.session_state.game_over:
+    st.error("💥 게임 오버! 다시 시작하려면 '게임 재시작' 버튼을 누르세요.")
