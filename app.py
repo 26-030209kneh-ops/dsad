@@ -1,10 +1,9 @@
 import streamlit as st
 import random
 import time
-import streamlit.components.v1 as components
 
 # =========================================================
-# 설정
+# 페이지 설정
 # =========================================================
 
 st.set_page_config(
@@ -13,28 +12,33 @@ st.set_page_config(
     layout="centered"
 )
 
+# =========================================================
+# 게임 설정
+# =========================================================
+
 WIDTH = 10
 HEIGHT = 20
 
 COLORS = {
     0: "#111827",
-    1: "#00E5FF",   # I
-    2: "#2979FF",   # J
-    3: "#FF9800",   # L
-    4: "#FFD600",   # O
-    5: "#00E676",   # S
-    6: "#D500F9",   # T
-    7: "#FF1744",   # Z
+    1: "#00E5FF",  # I
+    2: "#2979FF",  # J
+    3: "#FF9800",  # L
+    4: "#FFD600",  # O
+    5: "#00E676",  # S
+    6: "#D500F9",  # T
+    7: "#FF1744",  # Z
 }
 
 PIECES = {
     "I": [
         [[1, 1, 1, 1]],
-        [[1], [1], [1], [1]]
+        [[1], [1], [1], [1]],
     ],
 
     "O": [
-        [[1, 1], [1, 1]]
+        [[1, 1],
+         [1, 1]],
     ],
 
     "T": [
@@ -50,7 +54,7 @@ PIECES = {
 
         [[0, 1],
          [1, 1],
-         [0, 1]]
+         [0, 1]],
     ],
 
     "J": [
@@ -66,7 +70,7 @@ PIECES = {
 
         [[0, 1],
          [0, 1],
-         [1, 1]]
+         [1, 1]],
     ],
 
     "L": [
@@ -82,7 +86,7 @@ PIECES = {
 
         [[1, 1],
          [0, 1],
-         [0, 1]]
+         [0, 1]],
     ],
 
     "S": [
@@ -91,7 +95,7 @@ PIECES = {
 
         [[1, 0],
          [1, 1],
-         [0, 1]]
+         [0, 1]],
     ],
 
     "Z": [
@@ -100,8 +104,8 @@ PIECES = {
 
         [[0, 1],
          [1, 1],
-         [1, 0]]
-    ]
+         [1, 0]],
+    ],
 }
 
 PIECE_COLOR = {
@@ -111,7 +115,7 @@ PIECE_COLOR = {
     "O": 4,
     "S": 5,
     "T": 6,
-    "Z": 7
+    "Z": 7,
 }
 
 
@@ -126,11 +130,14 @@ def new_game():
         for _ in range(HEIGHT)
     ]
 
-    st.session_state.current = random.choice(list(PIECES.keys()))
-    st.session_state.next = random.choice(list(PIECES.keys()))
+    pieces = list(PIECES.keys())
+
+    st.session_state.current = random.choice(pieces)
+    st.session_state.next = random.choice(pieces)
     st.session_state.hold = None
 
     st.session_state.rotation = 0
+
     st.session_state.x = 3
     st.session_state.y = 0
 
@@ -154,13 +161,16 @@ if "board" not in st.session_state:
 # 현재 블록 모양
 # =========================================================
 
-def shape():
+def get_shape():
 
     rotations = PIECES[st.session_state.current]
 
-    return rotations[
-        st.session_state.rotation % len(rotations)
-    ]
+    index = (
+        st.session_state.rotation
+        % len(rotations)
+    )
+
+    return rotations[index]
 
 
 # =========================================================
@@ -169,41 +179,51 @@ def shape():
 
 def collision(s, x, y):
 
-    for r, row in enumerate(s):
+    for row_index, row in enumerate(s):
 
-        for c, value in enumerate(row):
+        for col_index, value in enumerate(row):
 
-            if not value:
+            if value == 0:
                 continue
 
-            bx = x + c
-            by = y + r
+            board_x = x + col_index
+            board_y = y + row_index
 
-            if bx < 0 or bx >= WIDTH:
+            if board_x < 0:
                 return True
 
-            if by >= HEIGHT:
+            if board_x >= WIDTH:
                 return True
 
-            if by >= 0 and st.session_state.board[by][bx]:
+            if board_y >= HEIGHT:
+                return True
+
+            if (
+                board_y >= 0
+                and st.session_state.board[board_y][board_x] != 0
+            ):
                 return True
 
     return False
 
 
 # =========================================================
-# 이동
+# 블록 이동
 # =========================================================
 
 def move(dx, dy):
 
-    nx = st.session_state.x + dx
-    ny = st.session_state.y + dy
+    new_x = st.session_state.x + dx
+    new_y = st.session_state.y + dy
 
-    if not collision(shape(), nx, ny):
+    if not collision(
+        get_shape(),
+        new_x,
+        new_y
+    ):
 
-        st.session_state.x = nx
-        st.session_state.y = ny
+        st.session_state.x = new_x
+        st.session_state.y = new_y
 
         return True
 
@@ -220,119 +240,78 @@ def rotate():
 
     st.session_state.rotation += 1
 
-    if collision(
-        shape(),
+    s = get_shape()
+
+    if not collision(
+        s,
         st.session_state.x,
         st.session_state.y
     ):
+        return
 
-        # 간단한 벽 차기
-        for offset in [-1, 1, -2, 2]:
+    # 벽에 붙어 있을 때 위치 조정
+    for offset in [-1, 1, -2, 2]:
 
-            if not collision(
-                shape(),
-                st.session_state.x + offset,
-                st.session_state.y
-            ):
+        if not collision(
+            s,
+            st.session_state.x + offset,
+            st.session_state.y
+        ):
 
-                st.session_state.x += offset
-                return
+            st.session_state.x += offset
+            return
 
-        st.session_state.rotation = old_rotation
-
-
-# =========================================================
-# 블록 고정
-# =========================================================
-
-def lock_piece():
-
-    s = shape()
-    color = PIECE_COLOR[st.session_state.current]
-
-    for r, row in enumerate(s):
-
-        for c, value in enumerate(row):
-
-            if value:
-
-                bx = st.session_state.x + c
-                by = st.session_state.y + r
-
-                if 0 <= by < HEIGHT and 0 <= bx < WIDTH:
-
-                    st.session_state.board[by][bx] = color
-
-    clear_lines()
-
-    st.session_state.current = st.session_state.next
-    st.session_state.next = random.choice(
-        list(PIECES.keys())
-    )
-
-    st.session_state.rotation = 0
-    st.session_state.x = 3
-    st.session_state.y = 0
-    st.session_state.can_hold = True
-
-    if collision(
-        shape(),
-        st.session_state.x,
-        st.session_state.y
-    ):
-
-        st.session_state.game_over = True
+    st.session_state.rotation = old_rotation
 
 
 # =========================================================
-# 줄 제거
+# 줄 삭제
 # =========================================================
 
 def clear_lines():
 
-    remaining = []
-
+    new_board = []
     cleared = 0
 
     for row in st.session_state.board:
 
-        if all(row):
+        if all(cell != 0 for cell in row):
             cleared += 1
         else:
-            remaining.append(row)
+            new_board.append(row)
 
-    while len(remaining) < HEIGHT:
+    while len(new_board) < HEIGHT:
 
-        remaining.insert(
+        new_board.insert(
             0,
             [0 for _ in range(WIDTH)]
         )
 
-    st.session_state.board = remaining
+    st.session_state.board = new_board
 
-    if cleared:
+    if cleared > 0:
 
-        st.session_state.lines += cleared
-
-        scores = {
+        score_table = {
             1: 100,
             2: 300,
             3: 500,
             4: 800
         }
 
-        gained = scores.get(cleared, 0)
+        gained = score_table.get(cleared, 0)
 
         gained *= st.session_state.level
 
         st.session_state.combo += 1
 
         if st.session_state.combo > 1:
+
             gained += (
                 st.session_state.combo * 50
             )
 
         st.session_state.score += gained
+        st.session_state.lines += cleared
 
         st.session_state.level = (
             st.session_state.lines // 10
@@ -341,6 +320,71 @@ def clear_lines():
     else:
 
         st.session_state.combo = 0
+
+
+# =========================================================
+# 블록 고정
+# =========================================================
+
+def lock_piece():
+
+    s = get_shape()
+
+    color = PIECE_COLOR[
+        st.session_state.current
+    ]
+
+    for row_index, row in enumerate(s):
+
+        for col_index, value in enumerate(row):
+
+            if value == 0:
+                continue
+
+            board_x = (
+                st.session_state.x
+                + col_index
+            )
+
+            board_y = (
+                st.session_state.y
+                + row_index
+            )
+
+            if (
+                0 <= board_x < WIDTH
+                and 0 <= board_y < HEIGHT
+            ):
+
+                st.session_state.board[
+                    board_y
+                ][
+                    board_x
+                ] = color
+
+    clear_lines()
+
+    st.session_state.current = (
+        st.session_state.next
+    )
+
+    st.session_state.next = random.choice(
+        list(PIECES.keys())
+    )
+
+    st.session_state.rotation = 0
+    st.session_state.x = 3
+    st.session_state.y = 0
+
+    st.session_state.can_hold = True
+
+    if collision(
+        get_shape(),
+        st.session_state.x,
+        st.session_state.y
+    ):
+
+        st.session_state.game_over = True
 
 
 # =========================================================
@@ -354,7 +398,9 @@ def hard_drop():
     while move(0, 1):
         distance += 1
 
-    st.session_state.score += distance * 2
+    st.session_state.score += (
+        distance * 2
+    )
 
     lock_piece()
 
@@ -384,10 +430,10 @@ def hold_piece():
 
     else:
 
-        temp = st.session_state.hold
+        old_hold = st.session_state.hold
 
         st.session_state.hold = current
-        st.session_state.current = temp
+        st.session_state.current = old_hold
 
     st.session_state.rotation = 0
     st.session_state.x = 3
@@ -400,41 +446,40 @@ def hold_piece():
 # Ghost 블록 위치
 # =========================================================
 
-def ghost_position():
+def get_ghost_y():
 
-    gy = st.session_state.y
+    ghost_y = st.session_state.y
 
     while not collision(
-        shape(),
+        get_shape(),
         st.session_state.x,
-        gy + 1
+        ghost_y + 1
     ):
 
-        gy += 1
+        ghost_y += 1
 
-    return gy
+    return ghost_y
 
 
 # =========================================================
-# 보드 HTML
+# 보드 HTML 생성
 # =========================================================
 
-def board_html():
+def create_board_html():
 
     board = [
         row[:] for row in st.session_state.board
     ]
 
+    # -------------------------
     # Ghost
+    # -------------------------
+
     if not st.session_state.game_over:
 
-        gy = ghost_position()
+        ghost_y = get_ghost_y()
 
-        ghost_color = PIECE_COLOR[
-            st.session_state.current
-        ]
-
-        s = shape()
+        s = get_shape()
 
         for r, row in enumerate(s):
 
@@ -442,22 +487,29 @@ def board_html():
 
                 if value:
 
-                    bx = st.session_state.x + c
-                    by = gy + r
+                    x = (
+                        st.session_state.x
+                        + c
+                    )
+
+                    y = ghost_y + r
 
                     if (
-                        0 <= bx < WIDTH
-                        and 0 <= by < HEIGHT
-                        and board[by][bx] == 0
+                        0 <= x < WIDTH
+                        and 0 <= y < HEIGHT
+                        and board[y][x] == 0
                     ):
 
-                        board[by][bx] = -ghost_color
+                        board[y][x] = -1
 
 
+    # -------------------------
     # 현재 블록
+    # -------------------------
+
     if not st.session_state.game_over:
 
-        s = shape()
+        s = get_shape()
 
         color = PIECE_COLOR[
             st.session_state.current
@@ -469,18 +521,29 @@ def board_html():
 
                 if value:
 
-                    bx = st.session_state.x + c
-                    by = st.session_state.y + r
+                    x = (
+                        st.session_state.x
+                        + c
+                    )
+
+                    y = (
+                        st.session_state.y
+                        + r
+                    )
 
                     if (
-                        0 <= bx < WIDTH
-                        and 0 <= by < HEIGHT
+                        0 <= x < WIDTH
+                        and 0 <= y < HEIGHT
                     ):
 
-                        board[by][bx] = color
+                        board[y][x] = color
 
 
-    cells = ""
+    # -------------------------
+    # 셀 생성
+    # -------------------------
+
+    cells = []
 
     for row in board:
 
@@ -488,59 +551,60 @@ def board_html():
 
             if cell == 0:
 
-                cells += """
-                <div class="cell empty"></div>
-                """
+                cells.append(
+                    '<div class="cell empty"></div>'
+                )
 
-            elif cell < 0:
+            elif cell == -1:
 
-                cells += """
-                <div class="cell ghost"></div>
-                """
+                cells.append(
+                    '<div class="cell ghost"></div>'
+                )
 
             else:
 
                 color = COLORS[cell]
 
-                cells += f"""
-                <div
-                    class="cell block"
-                    style="
-                        background:{color};
-                        box-shadow:
-                        inset 0 2px 3px
-                        rgba(255,255,255,.5),
-                        inset 0 -2px 3px
-                        rgba(0,0,0,.35);
-                    ">
-                </div>
-                """
+                cells.append(
+                    f'''
+                    <div
+                        class="cell block"
+                        style="
+                            background:{color};
+                        "
+                    ></div>
+                    '''
+                )
 
-    return f"""
-    <div class="board">
-        {cells}
-    </div>
-    """
+
+    # ★ 중요
+    # HTML을 한 줄 구조로 만들어
+    # Streamlit이 코드처럼 해석할 가능성을 제거
+
+    return (
+        '<div class="tetris-board">'
+        + ''.join(cells)
+        + '</div>'
+    )
 
 
 # =========================================================
 # 미리보기 HTML
 # =========================================================
 
-def preview_html(piece):
+def create_preview_html(piece):
 
     if piece is None:
 
-        return """
-        <div class="preview-empty">
-            EMPTY
-        </div>
-        """
+        return (
+            '<div class="preview-empty">'
+            'EMPTY'
+            '</div>'
+        )
 
     s = PIECES[piece][0]
 
-    # 4x4 공간
-    grid = []
+    cells = []
 
     for r in range(4):
 
@@ -561,28 +625,28 @@ def preview_html(piece):
                     PIECE_COLOR[piece]
                 ]
 
-                grid.append(
-                    f"""
+                cells.append(
+                    f'''
                     <div
                         class="preview-cell"
-                        style="background:{color};">
-                    </div>
-                    """
+                        style="
+                            background:{color};
+                        "
+                    ></div>
+                    '''
                 )
 
             else:
 
-                grid.append(
-                    """
-                    <div class="preview-cell blank"></div>
-                    """
+                cells.append(
+                    '<div class="preview-cell blank"></div>'
                 )
 
-    return f"""
-    <div class="preview-grid">
-        {''.join(grid)}
-    </div>
-    """
+    return (
+        '<div class="preview-grid">'
+        + ''.join(cells)
+        + '</div>'
+    )
 
 
 # =========================================================
@@ -591,171 +655,246 @@ def preview_html(piece):
 
 st.markdown(
     """
-    <style>
+<style>
 
-    .stApp {
-        background:
+html, body {
+    background: #020617;
+}
+
+.stApp {
+    background:
         radial-gradient(
             circle at top,
             #172554 0%,
-            #020617 45%,
+            #020617 55%,
             #020617 100%
         );
-    }
+}
 
-    .main-title {
-        text-align: center;
-        font-size: 46px;
-        font-weight: 900;
-        color: white;
-        margin-top: 10px;
-        margin-bottom: 0;
-        letter-spacing: 3px;
-    }
+/* 제목 */
 
-    .sub-title {
-        text-align: center;
-        color: #93c5fd;
-        margin-bottom: 25px;
-    }
+.game-title {
+    text-align: center;
+    color: white;
+    font-size: 46px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    margin-top: 10px;
+}
 
-    .board {
-        width: 300px;
-        height: 600px;
+.game-subtitle {
+    text-align: center;
+    color: #60a5fa;
+    margin-bottom: 25px;
+}
 
-        display: grid;
-        grid-template-columns: repeat(10, 1fr);
-        grid-template-rows: repeat(20, 1fr);
+/* 보드 */
 
-        gap: 2px;
+.tetris-board {
+    width: 300px;
+    height: 600px;
 
-        padding: 5px;
+    display: grid;
 
-        margin: auto;
+    grid-template-columns:
+        repeat(10, 1fr);
 
-        background: #020617;
+    grid-template-rows:
+        repeat(20, 1fr);
 
-        border: 3px solid #64748b;
+    gap: 2px;
 
-        border-radius: 12px;
+    padding: 5px;
 
-        box-shadow:
-            0 0 35px
-            rgba(59,130,246,.25);
-    }
+    margin: auto;
 
-    .cell {
-        border-radius: 3px;
-    }
+    background: #020617;
 
-    .empty {
-        background: #0f172a;
-        border:
-            1px solid
-            rgba(255,255,255,.025);
-    }
+    border: 3px solid #64748b;
 
-    .block {
-        border-radius: 4px;
-    }
+    border-radius: 12px;
 
-    .ghost {
-        background: rgba(148,163,184,.12);
-        border:
-            1px dashed
-            rgba(148,163,184,.45);
-    }
+    box-sizing: border-box;
 
-    .panel-title {
-        color: white;
-        font-size: 22px;
-        font-weight: 800;
-        margin-bottom: 10px;
-    }
+    box-shadow:
+        0 0 35px
+        rgba(59,130,246,.3);
+}
 
-    .stat {
-        background: rgba(30,41,59,.9);
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 10px;
-        text-align: center;
-        margin-bottom: 8px;
-    }
+.cell {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border-radius: 3px;
+}
 
-    .stat-name {
-        color: #94a3b8;
-        font-size: 12px;
-    }
+.cell.empty {
+    background: #0f172a;
+    border:
+        1px solid
+        rgba(255,255,255,.025);
+}
 
-    .stat-value {
-        color: white;
-        font-size: 25px;
-        font-weight: 800;
-    }
+.cell.block {
+    border-radius: 4px;
 
-    .preview-grid {
-        width: 112px;
-        height: 112px;
+    box-shadow:
+        inset 0 2px 3px
+        rgba(255,255,255,.5),
 
-        display: grid;
+        inset 0 -2px 3px
+        rgba(0,0,0,.35);
+}
 
-        grid-template-columns:
-            repeat(4, 25px);
+.cell.ghost {
+    background:
+        rgba(148,163,184,.10);
 
-        grid-template-rows:
-            repeat(4, 25px);
+    border:
+        1px dashed
+        rgba(148,163,184,.4);
+}
 
-        gap: 3px;
+/* 패널 */
 
-        padding: 5px;
+.panel-title {
+    color: white;
+    font-size: 21px;
+    font-weight: 800;
+    margin-bottom: 10px;
+}
 
-        margin-bottom: 20px;
+/* 점수 */
 
-        background: #0f172a;
+.stat-box {
+    background:
+        rgba(30,41,59,.9);
 
-        border-radius: 10px;
-    }
+    border:
+        1px solid #334155;
 
-    .preview-cell {
-        border-radius: 4px;
-    }
+    border-radius: 10px;
 
-    .blank {
-        background: transparent;
-    }
+    padding: 10px;
 
-    .preview-empty {
-        color: #64748b;
-        background: #0f172a;
-        border-radius: 10px;
-        padding: 20px;
-        text-align: center;
-        margin-bottom: 20px;
-    }
+    text-align: center;
 
-    .control {
-        color: #cbd5e1;
-        background: rgba(15,23,42,.95);
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 14px;
-        line-height: 1.9;
-        font-size: 14px;
-    }
+    margin-bottom: 8px;
+}
 
-    .game-over {
-        background: #991b1b;
-        color: white;
-        text-align: center;
-        padding: 12px;
-        border-radius: 10px;
-        font-size: 22px;
-        font-weight: bold;
-        margin-bottom: 12px;
-    }
+.stat-name {
+    color: #94a3b8;
+    font-size: 12px;
+}
 
-    </style>
-    """,
+.stat-value {
+    color: white;
+    font-size: 25px;
+    font-weight: 900;
+}
+
+/* 미리보기 */
+
+.preview-grid {
+    width: 112px;
+    height: 112px;
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(4, 25px);
+
+    grid-template-rows:
+        repeat(4, 25px);
+
+    gap: 3px;
+
+    padding: 5px;
+
+    box-sizing: border-box;
+
+    background: #0f172a;
+
+    border-radius: 10px;
+
+    margin-bottom: 20px;
+}
+
+.preview-cell {
+    border-radius: 4px;
+
+    box-shadow:
+        inset 0 2px 3px
+        rgba(255,255,255,.4),
+
+        inset 0 -2px 3px
+        rgba(0,0,0,.3);
+}
+
+.preview-cell.blank {
+    background: transparent;
+    box-shadow: none;
+}
+
+.preview-empty {
+    width: 112px;
+    height: 112px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #64748b;
+
+    background: #0f172a;
+
+    border-radius: 10px;
+
+    margin-bottom: 20px;
+}
+
+/* 조작 설명 */
+
+.control-box {
+    background:
+        rgba(15,23,42,.95);
+
+    color: #cbd5e1;
+
+    border:
+        1px solid #334155;
+
+    border-radius: 10px;
+
+    padding: 14px;
+
+    line-height: 1.9;
+
+    font-size: 14px;
+}
+
+/* 게임오버 */
+
+.game-over {
+    background: #991b1b;
+
+    color: white;
+
+    text-align: center;
+
+    padding: 12px;
+
+    border-radius: 10px;
+
+    font-size: 22px;
+
+    font-weight: 900;
+
+    margin-bottom: 12px;
+}
+
+</style>
+""",
     unsafe_allow_html=True
 )
 
@@ -765,12 +904,12 @@ st.markdown(
 # =========================================================
 
 st.markdown(
-    '<div class="main-title">🎮 TETRIS</div>',
+    '<div class="game-title">🎮 TETRIS</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
-    '<div class="sub-title">STREAMLIT EDITION</div>',
+    '<div class="game-subtitle">STREAMLIT EDITION</div>',
     unsafe_allow_html=True
 )
 
@@ -791,15 +930,19 @@ if (
         ) * 0.06
     )
 
-    now = time.time()
+    current_time = time.time()
 
-    if now - st.session_state.last_drop >= speed:
+    if (
+        current_time
+        - st.session_state.last_drop
+        >= speed
+    ):
 
         if not move(0, 1):
 
             lock_piece()
 
-        st.session_state.last_drop = now
+        st.session_state.last_drop = current_time
 
 
 # =========================================================
@@ -807,7 +950,8 @@ if (
 # =========================================================
 
 left, center, right = st.columns(
-    [1, 2, 1]
+    [1, 2, 1],
+    gap="medium"
 )
 
 
@@ -822,9 +966,11 @@ with left:
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        preview_html(st.session_state.hold),
-        unsafe_allow_html=True
+    # ★ st.html 사용
+    st.html(
+        create_preview_html(
+            st.session_state.hold
+        )
     )
 
     st.markdown(
@@ -834,22 +980,31 @@ with left:
 
     st.markdown(
         f"""
-        <div class="stat">
-            <div class="stat-name">SCORE</div>
+        <div class="stat-box">
+            <div class="stat-name">
+                SCORE
+            </div>
+
             <div class="stat-value">
                 {st.session_state.score:,}
             </div>
         </div>
 
-        <div class="stat">
-            <div class="stat-name">LEVEL</div>
+        <div class="stat-box">
+            <div class="stat-name">
+                LEVEL
+            </div>
+
             <div class="stat-value">
                 {st.session_state.level}
             </div>
         </div>
 
-        <div class="stat">
-            <div class="stat-name">LINES</div>
+        <div class="stat-box">
+            <div class="stat-name">
+                LINES
+            </div>
+
             <div class="stat-value">
                 {st.session_state.lines}
             </div>
@@ -868,25 +1023,30 @@ with center:
     if st.session_state.game_over:
 
         st.markdown(
-            '<div class="game-over">💀 GAME OVER</div>',
+            '<div class="game-over">'
+            '💀 GAME OVER'
+            '</div>',
             unsafe_allow_html=True
         )
 
     elif st.session_state.paused:
 
-        st.warning("⏸️ PAUSED")
+        st.warning("⏸️ 게임 일시정지")
 
-    # ★ 중요: st.markdown으로 HTML 렌더링
-    st.markdown(
-        board_html(),
-        unsafe_allow_html=True
+    # ★★★ 핵심 ★★★
+    # 보드를 st.html()로 직접 렌더링
+
+    st.html(
+        create_board_html()
     )
 
     st.write("")
 
-    a, b, c = st.columns(3)
+    # 이동 버튼
 
-    with a:
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
 
         if st.button(
             "⬅️",
@@ -896,7 +1056,7 @@ with center:
             move(-1, 0)
             st.rerun()
 
-    with b:
+    with col2:
 
         if st.button(
             "⬇️",
@@ -908,7 +1068,7 @@ with center:
 
             st.rerun()
 
-    with c:
+    with col3:
 
         if st.button(
             "➡️",
@@ -918,9 +1078,12 @@ with center:
             move(1, 0)
             st.rerun()
 
-    a, b, c = st.columns(3)
 
-    with a:
+    # 액션 버튼
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
 
         if st.button(
             "🔄 ROTATE",
@@ -930,7 +1093,7 @@ with center:
             rotate()
             st.rerun()
 
-    with b:
+    with col2:
 
         if st.button(
             "⬇️ DROP",
@@ -940,7 +1103,7 @@ with center:
             hard_drop()
             st.rerun()
 
-    with c:
+    with col3:
 
         if st.button(
             "📦 HOLD",
@@ -962,9 +1125,12 @@ with right:
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        preview_html(st.session_state.next),
-        unsafe_allow_html=True
+    # ★ st.html 사용
+
+    st.html(
+        create_preview_html(
+            st.session_state.next
+        )
     )
 
     st.markdown(
@@ -974,13 +1140,13 @@ with right:
 
     st.markdown(
         """
-        <div class="control">
-        ⬅️ ➡️ 이동<br>
-        ⬇️ 빠르게 내리기<br>
-        🔄 회전<br>
-        SPACE → 즉시 내리기<br>
-        C → HOLD<br>
-        P → 일시정지
+        <div class="control-box">
+            ⬅️ ➡️ &nbsp; 이동<br>
+            ⬇️ &nbsp; 빠르게 내리기<br>
+            🔄 &nbsp; 회전<br>
+            SPACE &nbsp; 즉시 내리기<br>
+            C &nbsp; HOLD<br>
+            P &nbsp; 일시정지
         </div>
         """,
         unsafe_allow_html=True
@@ -1020,89 +1186,27 @@ if st.session_state.combo > 1:
 
 
 # =========================================================
-# 키보드 입력
+# 키보드 안내
 # =========================================================
 
-components.html(
+st.markdown(
     """
-    <script>
-
-    const doc = window.parent.document;
-
-    if (!window.tetrisKeyboardInstalled) {
-
-        window.tetrisKeyboardInstalled = true;
-
-        doc.addEventListener("keydown", function(e) {
-
-            const key = e.key.toLowerCase();
-
-            if (
-                key === "arrowleft" ||
-                key === "arrowright" ||
-                key === "arrowdown" ||
-                key === "arrowup" ||
-                key === " "
-            ) {
-                e.preventDefault();
-            }
-
-            const buttons =
-                Array.from(
-                    doc.querySelectorAll("button")
-                );
-
-            function clickButton(text) {
-
-                const button = buttons.find(
-                    b => b.innerText.includes(text)
-                );
-
-                if (button) {
-                    button.click();
-                }
-            }
-
-            if (key === "arrowleft") {
-                clickButton("⬅️");
-            }
-
-            if (key === "arrowright") {
-                clickButton("➡️");
-            }
-
-            if (key === "arrowdown") {
-                clickButton("⬇️");
-            }
-
-            if (key === "arrowup") {
-                clickButton("ROTATE");
-            }
-
-            if (key === " ") {
-                clickButton("DROP");
-            }
-
-            if (key === "c") {
-                clickButton("HOLD");
-            }
-
-            if (key === "p") {
-                clickButton("PAUSE");
-            }
-
-        });
-
-    }
-
-    </script>
+    <div style="
+        text-align:center;
+        color:#64748b;
+        margin-top:20px;
+        font-size:13px;
+    ">
+        키보드 조작은 아래 버튼을 이용하거나
+        방향키를 사용할 수 있습니다.
+    </div>
     """,
-    height=0
+    unsafe_allow_html=True
 )
 
 
 # =========================================================
-# 게임 자동 실행
+# 자동 새로고침
 # =========================================================
 
 if (
@@ -1110,5 +1214,5 @@ if (
     and not st.session_state.paused
 ):
 
-    time.sleep(0.05)
+    time.sleep(0.08)
     st.rerun()
