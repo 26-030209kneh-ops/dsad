@@ -1,15 +1,17 @@
 import random
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 
 # 페이지 설정
 st.set_page_config(
     page_title="Streamlit Snake Game", page_icon="🐍", layout="centered"
 )
 
-st.title("🐍 스트리밋 뱀 게임 (Snake Game)")
-st.markdown("키보드 **방향키(↑, ↓, ←, →)**를 눌러서 뱀을 조작하세요!")
+st.title("🐍 키보드 방향키 뱀 게임")
+st.markdown(
+    "👉 **주의:** 게임 화면 아래의 빈 공간을 마우스로 **한 번 클릭**한 뒤, 키보드 **방향키**를 누르세요!"
+)
 
 # 게임판 크기 설정
 WIDTH = 15
@@ -26,7 +28,31 @@ if "snake" not in st.session_state:
     st.session_state.score = 0
     st.session_state.high_score = 0
     st.session_state.game_over = False
-    st.session_state.speed = 500  # 속도 (밀리초)
+    st.session_state.speed = 500  # 속도 설정 (밀리초)
+
+# URL 쿼리 스트링을 통해 자바스크립트와 파이썬 통신
+query_params = st.query_params
+if "key" in query_params:
+    pressed_key = query_params["key"]
+    current_dir = st.session_state.direction
+    DANGER_TURNS = {
+        ("UP", "DOWN"),
+        ("DOWN", "UP"),
+        ("LEFT", "RIGHT"),
+        ("RIGHT", "LEFT"),
+    }
+
+    new_dir = current_dir
+    if pressed_key == "ArrowUp" and current_dir != "DOWN":
+        new_dir = "UP"
+    elif pressed_key == "ArrowDown" and current_dir != "UP":
+        new_dir = "DOWN"
+    elif pressed_key == "ArrowLeft" and current_dir != "RIGHT":
+        new_dir = "LEFT"
+    elif pressed_key == "ArrowRight" and current_dir != "LEFT":
+        new_dir = "RIGHT"
+
+    st.session_state.direction = new_dir
 
 
 # 게임 리셋 함수
@@ -43,70 +69,35 @@ def reset_game():
     st.session_state.game_over = False
 
 
-# 자바스크립트를 이용해 키보드 입력 감지 및 세션 연동 컴포넌트
-# (스트리밋 컴포넌트를 통해 키 입력을 받기 위한 트릭)
-key_event = components.html(
+# 자바스크립트로 키보드 방향키 입력 감지 컴포넌트
+components.html(
     """
-    <div tabindex="0" id="game-container" style="outline: none; text-align: center; color: gray; font-size: 14px;">
-        🎮 [이곳을 클릭한 뒤 방향키를 누르세요]
+    <div tabindex="0" id="keyboard-listener" style="width: 100%; height: 40px; background-color: #f0f2f6; display: flex; align-items: center; justify-content: center; border-radius: 5px; outline: none; font-weight: bold; color: #333; cursor: pointer;">
+        🎮 [이 박스를 클릭하고 방향키를 누르세요]
     </div>
     <script>
-        const container = document.getElementById('game-container');
-        container.focus();
+        const box = document.getElementById('keyboard-listener');
+        box.focus();
+        
         window.addEventListener('keydown', (e) => {
-            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) {
-                e.preventDefault();
-                const parentDoc = window.parent.document;
-                // 스트리밋 내부 통신을 위한 임시 조치 (버튼 클릭 트리거)
-                const buttons = parentDoc.querySelectorAll('button');
-                buttons.forEach(btn => {
-                    if(btn.innerText.includes(e.key)) {
-                        // 각 방향에 맞는 버튼 자동 클릭 시뮬레이션
-                    }
-                });
+            if(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+                e.preventDefault(); // 화면 스크롤 방지
+                // 스트리밋 주소창(Query Parameter)을 조작하여 파이썬으로 키값 전달
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('key', e.key);
+                window.parent.history.replaceState({}, '', url);
+                
+                // 페이지 강제 새로고침 트리거를 위한 이벤트 전파
+                const event = new Event('popstate');
+                window.parent.dispatchEvent(event);
             }
         });
     </script>
     """,
-    height=30,
+    height=50,
 )
 
-# 방향 전환 규칙 (180도 역주행 방지)
-DANGER_TURNS = {
-    ("UP", "DOWN"),
-    ("DOWN", "UP"),
-    ("LEFT", "RIGHT"),
-    ("RIGHT", "LEFT"),
-}
-
-
-def set_direction(new_dir):
-    if (st.session_state.direction, new_dir) not in DANGER_TURNS:
-        st.session_state.direction = new_dir
-
-
-# 키보드 입력을 대체하기 위한 숨김/일반 조작 버튼 (스트리밋 기본 기능 활용)
-# 사용자가 화면에서 방향 버튼을 누를 수 있도록 배치
-st.markdown("### 🕹️ 조작 버튼")
-col1, col2, col3 = st.columns([1, 1, 1])
-with col2:
-    if st.button("⬆️ 위 (ArrowUp)", use_container_width=True):
-        set_direction("UP")
-
-col4, col5, col6 = st.columns([1, 1, 1])
-with col4:
-    if st.button("⬅️ 왼쪽 (ArrowLeft)", use_container_width=True):
-        set_direction("LEFT")
-with col6:
-    if st.button("➡️ 오른쪽 (ArrowRight)", use_container_width=True):
-        set_direction("RIGHT")
-
-col7, col8, col9 = st.columns([1, 1, 1])
-with col8:
-    if st.button("⬇️ 아래 (ArrowDown)", use_container_width=True):
-        set_direction("DOWN")
-
-# 자동 새로고침 루프 (게임이 진행 중일 때만)
+# 자동 새로고침 루프 (게임 진행 중)
 if not st.session_state.game_over:
     st_autorefresh(
         interval=st.session_state.speed, limit=None, key="snake_loop"
